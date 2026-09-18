@@ -18,7 +18,7 @@ def options():
  # NEVER call load() here. load() reads all 8 workbooks and can exceed the
  # memory limit on a small Render instance. Filters only need lightweight
  # unique values from the sales file and master files.
- from data_loader import DATA_SOURCES, read_filter_columns
+ from data_loader import DATA_SOURCES, read_filter_columns, load_all
  fields=['chain_name','chain_type','region','state','city','brand','category','sub_category','pareto','status']
  out={c:set() for c in fields}
  errors={}
@@ -53,10 +53,14 @@ def page(p):
  d=load();x=filt(sales(d),request.args);sets={'sales':['chain_name','region','city','category','brand'],'retailer':['chain_name','outlet_name'],'product':['category','sub_category','brand','sku'],'inventory':['chain_name','outlet_name','category'],'distribution':['chain_name','region','category','sku'],'commercial':['chain_name','category','brand'],'flow':['chain_name','region','category']}
  return jsonify({'kpis':kpi(x),'trend':trend(x),'tables':{c:group(x,c,30) for c in sets.get(p,['chain_name','category','sku'])},'distribution':dist(d),'opportunities':opp(x,d)})
 @app.route('/api/refresh')
-def refresh():load(True);return jsonify({'ok':True})
+def refresh():
+    from data_loader import cache
+    with __import__('data_loader')._lock:
+        cache={'t':0,'d':None}
+    return jsonify({'ok':True})
 @app.route('/api/health')
 def health():
- d=load();return jsonify({'datasets':{k:(0 if v is None else len(v)) for k,v in d.items()},'errors':last_errors})
+ d=load_all();return jsonify({'datasets':{k:(0 if v is None else len(v)) for k,v in d.items()},'errors':last_errors})
 if __name__=='__main__':
  # debug=True is only safe for local dev on your own machine (it exposes a remote-code-execution
  # console on error pages). Production always runs via gunicorn (see render.yaml) which ignores this

@@ -83,28 +83,57 @@ def read(name,src):
   last_errors.pop(name,None);return result
  except Exception as e:
   last_errors[name]=str(e);print("DATA ERROR",name,src,e);return None
+def _build_dataset(names):
+    """Load only the datasets needed by the current request.
+    Keeping this small is critical on Render's low-memory instances.
+    """
+    d={}
+    for k in names:
+        src=DATA_SOURCES.get(k)
+        if not src:
+            d[k]=None
+            continue
+        d[k]=read(k,src)
+    x=d.get("TERTIARY")
+    if x is None or x.empty:
+        x=d.get("PRIMARY")
+    if x is None:
+        x=pd.DataFrame()
+    sm=d.get("SKU_MASTER")
+    if not x.empty and sm is not None and "sku_code" in x and "sku_code" in sm:
+        sm=sm.drop_duplicates("sku_code")
+        cols=[c for c in ["brand","category","sub_category","pareto","status","mrp"] if c in sm and c not in x]
+        if cols:
+            x=x.merge(sm[["sku_code"]+cols],on="sku_code",how="left",copy=False)
+    om=d.get("OUTLET_MASTER")
+    if not x.empty and om is not None and "outlet_code" in x and "outlet_code" in om:
+        om=om.drop_duplicates("outlet_code")
+        cols=[c for c in ["city","state","region","store_status","store_format","store_area"] if c in om and c not in x]
+        if cols:
+            x=x.merge(om[["outlet_code"]+cols],on="outlet_code",how="left",copy=False)
+    d["SALES"]=x
+    return d
+
 def load(force=False):
- global cache
- with _lock:
-  if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:return cache["d"]
-  # Fetch all 8 sources in parallel instead of one-after-another: sequentially, a few slow
-  # SharePoint links can add up past gunicorn's worker timeout, which kills the worker mid-response
-  # and the browser gets an empty body ("Unexpected end of JSON input"). Bounding each future's
-  # wait to 50s keeps this call well under the timeout even if some sources are unreachable.
-  d={}
-  with ThreadPoolExecutor(max_workers=len(DATA_SOURCES)) as ex:
-   futures={ex.submit(read,k,v):k for k,v in DATA_SOURCES.items()}
-   for fut,k in futures.items():
-    try:d[k]=fut.result(timeout=50)
-    except Exception as e:
-     last_errors[k]=f"Timed out waiting for a response: {e}";d[k]=None
-  x=d.get("TERTIARY")
-  if x is None:x=d.get("PRIMARY")
-  if x is None:x=pd.DataFrame()
-  if not x.empty and d.get("SKU_MASTER") is not None and "sku_code" in x and "sku_code" in d["SKU_MASTER"]:
-   sm=d["SKU_MASTER"].drop_duplicates("sku_code");cols=[c for c in ["brand","category","sub_category","pareto","status","mrp"] if c in sm and c not in x]
-   if cols:x=x.merge(sm[["sku_code"]+cols],on="sku_code",how="left")
-  if not x.empty and d.get("OUTLET_MASTER") is not None and "outlet_code" in x and "outlet_code" in d["OUTLET_MASTER"]:
-   om=d["OUTLET_MASTER"].drop_duplicates("outlet_code");cols=[c for c in ["city","state","region","store_status","store_format","store_area"] if c in om and c not in x]
-   if cols:x=x.merge(om[["outlet_code"]+cols],on="outlet_code",how="left")
-  d["SALES"]=x;cache={"t":time.time(),"d":d};return d
+    global cache
+    with _lock:
+        if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:
+            return cache["d"]
+    # Do NOT load every workbook for the dashboard. OP_STOCK, CL_STOCK and TARGET
+    # are independent datasets and can consume substantial memory. The dashboard's
+    # current analytics only require sales + distribution + masters.
+    d=_build_dataset(["TERTIARY","PRIMARY","DISTRIBUTION","SKU_MASTER","OUTLET_MASTER"])
+    with _lock:
+        cache={"t":time.time(),"d":d}
+    return d
+
+def load_all(force=False):
+    """Explicit full load for diagnostics only; never used by normal dashboard requests."""
+    global cache
+    with _lock:
+        if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:
+            return cache["d"]
+    d=_build_dataset(list(DATA_SOURCES.keys()))
+    with _lock:
+        cache={"t":time.time(),"d":d}
+    return d
