@@ -64,54 +64,71 @@ def read_filter_columns(src, wanted):
  wb.close()
  return values
 
-def read(name,src):
- try:
-  if src.startswith(("http://","https://")):
-   url=normalize_url(src)
-   # (connect_timeout, read_timeout): fail fast on a dead host, but still allow a slow-but-alive
-   # SharePoint response some room, without letting one source stall the whole load() call.
-   r=requests.get(url,timeout=(10,45),headers=HEADERS);r.raise_for_status()
-   ctype=r.headers.get("content-type","")
-   if "html" in ctype.lower():
-    # Common OneDrive/SharePoint failure mode: link returns a login/viewer page, not the file
-    raise ValueError("Got an HTML page instead of the Excel file — check the SharePoint link's sharing permission is 'Anyone with the link', not restricted to specific people/org")
-   result=std(read_excel_fast(io.BytesIO(r.content)))
-  else:
-   p=Path(src)
-   if not p.exists():raise FileNotFoundError(f"No local file at {src}")
-   result=std(read_excel_fast(p))
-  last_errors.pop(name,None);return result
- except Exception as e:
-  last_errors[name]=str(e);print("DATA ERROR",name,src,e);return None
+def _source_bytes(src, timeout=(8,30)):
+    if src.startswith(("http://","https://")):
+        url=normalize_url(src)
+        r=requests.get(url, timeout=timeout, headers=HEADERS)
+        r.raise_for_status()
+        if "html" in r.headers.get("content-type", "").lower():
+            raise ValueError("Got HTML/login page instead of Excel file; check the sharing permission")
+        return io.BytesIO(r.content)
+    p=Path(src)
+    if not p.exists():
+        raise FileNotFoundError(f"No local file at {src}")
+    return p
+
+def read(name,src,usecols=None):
+    try:
+        result=std(pd.read_excel(_source_bytes(src), engine="openpyxl", usecols=usecols))
+        last_errors.pop(name,None)
+        return result
+    except Exception as e:
+        last_errors[name]=str(e)
+        print("DATA ERROR",name,src,e)
+        return None
+
+def read_compact_distribution(src):
+    """Distribution is used only for SKU distribution % and overall distribution KPI.
+    Keep only the two required columns to avoid a second large DataFrame."""
+    return read("DISTRIBUTION", src, usecols=lambda c: norm(c) in {"sku code","distribution"})
+
 def _build_dataset(names):
-    """Load only the datasets needed by the current request.
-    Keeping this small is critical on Render's low-memory instances.
-    """
+    # The TERTIARY/PRIMARY workbooks already contain SKU, outlet, brand, category,
+    # Pareto, status, MRP and stock. Do not load the master workbooks or duplicate
+    # those columns with merges on every dashboard request.
     d={}
-    for k in names:
-        src=DATA_SOURCES.get(k)
-        if not src:
-            d[k]=None
-            continue
-        d[k]=read(k,src)
-    x=d.get("TERTIARY")
-    if x is None or x.empty:
-        x=d.get("PRIMARY")
-    if x is None:
-        x=pd.DataFrame()
-    sm=d.get("SKU_MASTER")
-    if not x.empty and sm is not None and "sku_code" in x and "sku_code" in sm:
-        sm=sm.drop_duplicates("sku_code")
-        cols=[c for c in ["brand","category","sub_category","pareto","status","mrp"] if c in sm and c not in x]
-        if cols:
-            x=x.merge(sm[["sku_code"]+cols],on="sku_code",how="left",copy=False)
-    om=d.get("OUTLET_MASTER")
-    if not x.empty and om is not None and "outlet_code" in x and "outlet_code" in om:
-        om=om.drop_duplicates("outlet_code")
-        cols=[c for c in ["city","state","region","store_status","store_format","store_area"] if c in om and c not in x]
-        if cols:
-            x=x.merge(om[["outlet_code"]+cols],on="outlet_code",how="left",copy=False)
-    d["SALES"]=x
+    sales_src=None
+    if "TERTIARY" in names:
+        sales_src=DATA_SOURCES.get("TERTIARY")
+    if not sales_src and "PRIMARY" in names:
+        sales_src=DATA_SOURCES.get("PRIMARY")
+
+    if sales_src:
+        sales_cols=[
+            "Month","Outlet Code","Outlet Name","Chain Name","Location","Chain Type",
+            "SKU","SKU Code","Brand","Pareto","Category","Sub Category","Status",
+            "Sales Qty","Sales Value","MRP","Stock Qty","Targets","Margins","Promos%"
+        ]
+        # If a source has slightly different headers, read_excel's usecols callable
+        # keeps this tolerant while still limiting the loaded columns.
+        wanted={norm(c) for c in sales_cols}
+        x=read("TERTIARY" if "TERTIARY" in names and sales_src==DATA_SOURCES.get("TERTIARY") else "PRIMARY",
+               sales_src, usecols=lambda c: norm(c) in wanted)
+    else:
+        x=None
+
+    d["TERTIARY"]=x if "TERTIARY" in names else None
+    d["PRIMARY"]=None if x is not None else (read("PRIMARY", DATA_SOURCES.get("PRIMARY")) if "PRIMARY" in names else None)
+    d["SALES"]=x if x is not None else d.get("PRIMARY")
+
+    if "DISTRIBUTION" in names and DATA_SOURCES.get("DISTRIBUTION"):
+        d["DISTRIBUTION"]=read_compact_distribution(DATA_SOURCES["DISTRIBUTION"])
+    else:
+        d["DISTRIBUTION"]=None
+
+    # Compatibility keys; these are deliberately not loaded for the dashboard.
+    for k in ["SKU_MASTER","OUTLET_MASTER","OP_STOCK","CL_STOCK","TARGET"]:
+        d[k]=None
     return d
 
 def load(force=False):
@@ -128,12 +145,5 @@ def load(force=False):
     return d
 
 def load_all(force=False):
-    """Explicit full load for diagnostics only; never used by normal dashboard requests."""
-    global cache
-    with _lock:
-        if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:
-            return cache["d"]
-    d=_build_dataset(list(DATA_SOURCES.keys()))
-    with _lock:
-        cache={"t":time.time(),"d":d}
-    return d
+    """Compatibility diagnostic load. Keep it intentionally bounded on Render."""
+    return load(force=force)

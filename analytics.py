@@ -1,10 +1,10 @@
 import pandas as pd,numpy as np
 def sales(d):
- x=d.get("SALES",pd.DataFrame()).copy()
+ x=d.get("SALES",pd.DataFrame())
  if x.empty:return x
  for c in ["sales_qty","sales_value","mrp","stock_qty","target","margin_pct","promo_pct"]:
   if c not in x:x[c]=0
- x["margin_value"]=x.sales_value*x.margin_pct/100
+ if "margin_value" not in x:x["margin_value"]=x.sales_value*x.margin_pct/100
  return x
 def filt(x,p):
  for c in ["chain_name","chain_type","region","state","city","brand","category","sub_category","pareto","status","outlet_name","sku"]:
