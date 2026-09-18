@@ -125,27 +125,29 @@ def read_options_source(name,src):
 
 def load(force=False):
  global cache
-
+ # IMPORTANT: only hold the lock while checking/updating the in-memory cache.
+ # Never hold it during network/Excel I/O; otherwise a dashboard request can block
+ # /api/options and make the browser receive a Render 502.
  with _lock:
-  if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:return cache["d"]
-  # Fetch all 8 sources in parallel instead of one-after-another: sequentially, a few slow
-  # SharePoint links can add up past gunicorn's worker timeout, which kills the worker mid-response
-  # and the browser gets an empty body ("Unexpected end of JSON input"). Bounding each future's
-  # wait to 50s keeps this call well under the timeout even if some sources are unreachable.
-  d={}
-  with ThreadPoolExecutor(max_workers=len(DATA_SOURCES)) as ex:
-   futures={ex.submit(read,k,v):k for k,v in DATA_SOURCES.items()}
-   for fut,k in futures.items():
-    try:d[k]=fut.result(timeout=50)
-    except Exception as e:
-     last_errors[k]=f"Timed out waiting for a response: {e}";d[k]=None
-  x=d.get("TERTIARY")
-  if x is None:x=d.get("PRIMARY")
-  if x is None:x=pd.DataFrame()
-  if not x.empty and d.get("SKU_MASTER") is not None and "sku_code" in x and "sku_code" in d["SKU_MASTER"]:
-   sm=d["SKU_MASTER"].drop_duplicates("sku_code");cols=[c for c in ["brand","category","sub_category","pareto","status","mrp"] if c in sm and c not in x]
-   if cols:x=x.merge(sm[["sku_code"]+cols],on="sku_code",how="left")
-  if not x.empty and d.get("OUTLET_MASTER") is not None and "outlet_code" in x and "outlet_code" in d["OUTLET_MASTER"]:
-   om=d["OUTLET_MASTER"].drop_duplicates("outlet_code");cols=[c for c in ["city","state","region","store_status","store_format","store_area"] if c in om and c not in x]
-   if cols:x=x.merge(om[["outlet_code"]+cols],on="outlet_code",how="left")
-  d["SALES"]=x;cache={"t":time.time(),"d":d};return d
+  if cache["d"] is not None and not force and time.time()-cache["t"] < CACHE_MINUTES*60:
+   return cache["d"]
+
+ d={}
+ with ThreadPoolExecutor(max_workers=max(1,len(DATA_SOURCES))) as ex:
+  futures={ex.submit(read,k,v):k for k,v in DATA_SOURCES.items()}
+  for fut,k in futures.items():
+   try:d[k]=fut.result(timeout=55)
+   except Exception as e:
+    last_errors[k]=f"Timed out waiting for a response: {e}";d[k]=None
+ x=d.get("TERTIARY")
+ if x is None or x.empty:x=d.get("PRIMARY")
+ if x is None:x=pd.DataFrame()
+ if not x.empty and d.get("SKU_MASTER") is not None and "sku_code" in x and "sku_code" in d["SKU_MASTER"]:
+  sm=d["SKU_MASTER"].drop_duplicates("sku_code");cols=[c for c in ["brand","category","sub_category","pareto","status","mrp"] if c in sm and c not in x]
+  if cols:x=x.merge(sm[["sku_code"]+cols],on="sku_code",how="left")
+ if not x.empty and d.get("OUTLET_MASTER") is not None and "outlet_code" in x and "outlet_code" in d["OUTLET_MASTER"]:
+  om=d["OUTLET_MASTER"].drop_duplicates("outlet_code");cols=[c for c in ["city","state","region","store_status","store_format","store_area"] if c in om and c not in x]
+  if cols:x=x.merge(om[["outlet_code"]+cols],on="outlet_code",how="left")
+ d["SALES"]=x
+ with _lock:cache={"t":time.time(),"d":d}
+ return d
