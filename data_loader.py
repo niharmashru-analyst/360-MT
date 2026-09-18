@@ -16,28 +16,43 @@ def std(df):
   if dt.notna().any():df["month"]=dt.dt.to_period("M").dt.to_timestamp()
  return df
 HEADERS={"User-Agent":"Mozilla/5.0 (MT360 data loader)"}
+last_errors={}  # {source_key: last error message}, surfaced on the Data Health page
+def normalize_url(u):
+ # OneDrive/SharePoint "share" links (…/:x:/g/personal/…) open the Excel Online *viewer*
+ # page by default, not the raw file. Appending download=1 forces a raw download instead —
+ # but this only works if the link's sharing permission is "Anyone with the link", since the
+ # server has no Microsoft login session to satisfy an org/people-restricted link.
+ if ("sharepoint.com" in u or "1drv.ms" in u or "onedrive.live.com" in u) and "download=1" not in u:
+  u += ("&" if "?" in u else "?") + "download=1"
+ return u
 def read_excel_fast(src):
  # calamine (Rust-based) parses xlsx roughly 5-7x faster than the default openpyxl engine,
  # which matters here since load() re-reads every source file on every cache miss/refresh.
  # Fall back to openpyxl for the rare file calamine can't parse (e.g. unusual formatting).
  try:return pd.read_excel(src,engine="calamine")
  except Exception:return pd.read_excel(src)
-def read(src):
+def read(name,src):
  try:
   if src.startswith(("http://","https://")):
-   r=requests.get(src,timeout=60,headers=HEADERS);r.raise_for_status()
+   url=normalize_url(src)
+   r=requests.get(url,timeout=60,headers=HEADERS);r.raise_for_status()
    ctype=r.headers.get("content-type","")
    if "html" in ctype.lower():
-    # Common OneDrive/SharePoint failure mode: link returns a login/HTML page, not the file
-    raise ValueError(f"URL returned HTML instead of an Excel file (check it's a *direct download* link, not a sharing page): {src}")
-   return std(read_excel_fast(io.BytesIO(r.content)))
-  p=Path(src);return std(read_excel_fast(p)) if p.exists() else None
- except Exception as e:print("DATA ERROR",src,e);return None
+    # Common OneDrive/SharePoint failure mode: link returns a login/viewer page, not the file
+    raise ValueError("Got an HTML page instead of the Excel file — check the SharePoint link's sharing permission is 'Anyone with the link', not restricted to specific people/org")
+   result=std(read_excel_fast(io.BytesIO(r.content)))
+  else:
+   p=Path(src)
+   if not p.exists():raise FileNotFoundError(f"No local file at {src}")
+   result=std(read_excel_fast(p))
+  last_errors.pop(name,None);return result
+ except Exception as e:
+  last_errors[name]=str(e);print("DATA ERROR",name,src,e);return None
 def load(force=False):
  global cache
  with _lock:
   if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:return cache["d"]
-  d={k:read(v) for k,v in DATA_SOURCES.items()}
+  d={k:read(k,v) for k,v in DATA_SOURCES.items()}
   x=d.get("TERTIARY")
   if x is None:x=d.get("PRIMARY")
   if x is None:x=pd.DataFrame()

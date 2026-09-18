@@ -1,6 +1,6 @@
 import os,traceback
 from flask import Flask,render_template,request,jsonify
-from data_loader import load
+from data_loader import load,last_errors
 from analytics import sales,filt,kpi,group,trend,dist,opp
 app=Flask(__name__)
 
@@ -31,7 +31,7 @@ def page(p):
 def refresh():load(True);return jsonify({'ok':True})
 @app.route('/api/health')
 def health():
- d=load();return jsonify({'datasets':{k:(0 if v is None else len(v)) for k,v in d.items()}})
+ d=load();return jsonify({'datasets':{k:(0 if v is None else len(v)) for k,v in d.items()},'errors':last_errors})
 if __name__=='__main__':
  # debug=True is only safe for local dev on your own machine (it exposes a remote-code-execution
  # console on error pages). Production always runs via gunicorn (see render.yaml) which ignores this
