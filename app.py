@@ -1,6 +1,6 @@
 import os,traceback
 from flask import Flask,render_template,request,jsonify
-from data_loader import load,load_options,last_errors
+from data_loader import load,last_errors
 from analytics import sales,filt,kpi,group,trend,dist,opp
 app=Flask(__name__)
 
@@ -15,16 +15,35 @@ def on_error(e):
 def home():return render_template('index.html')
 @app.route('/api/options')
 def options():
- try:
-  # Lightweight path: filters must never depend on the slower inventory/target files.
-  x=sales(load_options())
-  out={}
-  for c in ['chain_name','chain_type','region','state','city','brand','category','sub_category','pareto','status']:
-   out[c]=sorted(x[c].dropna().astype(str).unique().tolist()) if c in x else []
-  return jsonify(out)
- except Exception as e:
-  traceback.print_exc()
-  return jsonify({'error':str(e),'chain_name':[],'chain_type':[],'region':[],'state':[],'city':[],'brand':[],'category':[],'sub_category':[],'pareto':[],'status':[]}),200
+ # NEVER call load() here. load() reads all 8 workbooks and can exceed the
+ # memory limit on a small Render instance. Filters only need lightweight
+ # unique values from the sales file and master files.
+ from data_loader import DATA_SOURCES, read_filter_columns
+ fields=['chain_name','chain_type','region','state','city','brand','category','sub_category','pareto','status']
+ out={c:set() for c in fields}
+ errors={}
+ sales_src=DATA_SOURCES.get('TERTIARY') or DATA_SOURCES.get('PRIMARY')
+ for src_name in ['TERTIARY','PRIMARY']:
+  src=DATA_SOURCES.get(src_name)
+  if not src: continue
+  try:
+   vals=read_filter_columns(src, fields)
+   for c,v in vals.items(): out[c].update(v)
+   if any(out[c] for c in fields): break
+  except Exception as e:
+   errors[src_name]=str(e)
+ # Enrich missing product filters from SKU master and missing location filters
+ # from outlet master, still using the lightweight row reader.
+ for src_name, wanted in [('SKU_MASTER',['brand','category','sub_category','pareto','status']),('OUTLET_MASTER',['region','state','city','chain_type'])]:
+  try:
+   vals=read_filter_columns(DATA_SOURCES[src_name], wanted)
+   for c,v in vals.items(): out[c].update(v)
+  except Exception as e:
+   errors[src_name]=str(e)
+ result={c:sorted(v) for c,v in out.items()}
+ response=jsonify(result)
+ response.headers['Cache-Control']='public, max-age=300'
+ return response
 @app.route('/api/dashboard')
 def dashboard():
  d=load();x=filt(sales(d),request.args)
@@ -34,12 +53,7 @@ def page(p):
  d=load();x=filt(sales(d),request.args);sets={'sales':['chain_name','region','city','category','brand'],'retailer':['chain_name','outlet_name'],'product':['category','sub_category','brand','sku'],'inventory':['chain_name','outlet_name','category'],'distribution':['chain_name','region','category','sku'],'commercial':['chain_name','category','brand'],'flow':['chain_name','region','category']}
  return jsonify({'kpis':kpi(x),'trend':trend(x),'tables':{c:group(x,c,30) for c in sets.get(p,['chain_name','category','sku'])},'distribution':dist(d),'opportunities':opp(x,d)})
 @app.route('/api/refresh')
-def refresh():
- from data_loader import options_cache
- load(True)
- options_cache['t']=0
- options_cache['x']=None
- return jsonify({'ok':True})
+def refresh():load(True);return jsonify({'ok':True})
 @app.route('/api/health')
 def health():
  d=load();return jsonify({'datasets':{k:(0 if v is None else len(v)) for k,v in d.items()},'errors':last_errors})

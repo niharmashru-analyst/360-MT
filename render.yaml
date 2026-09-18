@@ -8,7 +8,7 @@ services:
     # whichever worker answers that request and users can see stale vs fresh data at random.
     # Threads still give you concurrency for multiple users; just don't raise --workers
     # without also moving the cache to something shared (e.g. Redis or a cache file).
-    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 180
+    startCommand: gunicorn app:app --workers 1 --threads 2 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.6
