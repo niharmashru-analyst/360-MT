@@ -1,5 +1,6 @@
 import io,re,time,threading
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd,requests
 from config import DATA_SOURCES,CACHE_MINUTES
 cache={"t":0,"d":None}
@@ -35,7 +36,9 @@ def read(name,src):
  try:
   if src.startswith(("http://","https://")):
    url=normalize_url(src)
-   r=requests.get(url,timeout=60,headers=HEADERS);r.raise_for_status()
+   # (connect_timeout, read_timeout): fail fast on a dead host, but still allow a slow-but-alive
+   # SharePoint response some room, without letting one source stall the whole load() call.
+   r=requests.get(url,timeout=(10,45),headers=HEADERS);r.raise_for_status()
    ctype=r.headers.get("content-type","")
    if "html" in ctype.lower():
     # Common OneDrive/SharePoint failure mode: link returns a login/viewer page, not the file
@@ -52,7 +55,17 @@ def load(force=False):
  global cache
  with _lock:
   if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:return cache["d"]
-  d={k:read(k,v) for k,v in DATA_SOURCES.items()}
+  # Fetch all 8 sources in parallel instead of one-after-another: sequentially, a few slow
+  # SharePoint links can add up past gunicorn's worker timeout, which kills the worker mid-response
+  # and the browser gets an empty body ("Unexpected end of JSON input"). Bounding each future's
+  # wait to 50s keeps this call well under the timeout even if some sources are unreachable.
+  d={}
+  with ThreadPoolExecutor(max_workers=len(DATA_SOURCES)) as ex:
+   futures={ex.submit(read,k,v):k for k,v in DATA_SOURCES.items()}
+   for fut,k in futures.items():
+    try:d[k]=fut.result(timeout=50)
+    except Exception as e:
+     last_errors[k]=f"Timed out waiting for a response: {e}";d[k]=None
   x=d.get("TERTIARY")
   if x is None:x=d.get("PRIMARY")
   if x is None:x=pd.DataFrame()
