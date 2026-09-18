@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: mt360-modern-trade
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    # 1 worker on purpose: the Excel cache in data_loader.py lives in process memory.
+    # With 2+ workers each process caches independently, so "Refresh Data" only updates
+    # whichever worker answers that request and users can see stale vs fresh data at random.
+    # Threads still give you concurrency for multiple users; just don't raise --workers
+    # without also moving the cache to something shared (e.g. Redis or a cache file).
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 180
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.6
+      - key: CACHE_MINUTES
+        value: 10
