@@ -2,6 +2,3 @@ __pycache__/
 *.pyc
 .venv/
 .env
-.DS_Store
-data/*.xlsx
-data/*.xls

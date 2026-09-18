@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: mt360-dashboard
+    name: mt360-modern-trade
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 120
+    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 180
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.6
+      - key: CACHE_MINUTES
+        value: 10

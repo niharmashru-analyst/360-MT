@@ -1,42 +1,33 @@
-# MT 360 — Modern Trade Intelligence Dashboard
+# MT 360 FINAL
+Modern Trade 360 dashboard for a cosmetics business.
 
-Flask + Pandas dashboard designed for a cosmetics Modern Trade business.
+Pages:
+- Executive Overview
+- Sales Performance
+- Retailer 360
+- Product & Category
+- Stock Health
+- Distribution
+- Target & Margin
+- Primary -> Tertiary Flow
+- Leakage & Opportunities
+- Action Center
+- MT Analyst
+- Data Health
 
-## Data model
-The app supports these logical datasets:
-- PRIMARY
-- TERTIARY
-- OP STOCK
-- CL STOCK
-- DISTRIBUTION (optional)
-- TARGET (optional)
-- OUTLET MASTER (optional)
-- SKU MASTER (optional)
+Dummy Excel files are included in /data. Replace their rows with actual data on Monday.
+Keep headers and keys consistent.
 
-You can provide them as local Excel files or public OneDrive download URLs.
+Render:
+Build: pip install -r requirements.txt
+Start: gunicorn app:app --workers 2 --threads 4 --timeout 180
 
-## Important
-For OneDrive, put a direct/downloadable file URL in `config.py`. A normal browser sharing page URL may not work with server-side downloads.
-
-## Expected columns
-Core:
-Month, Outlet Code, Outlet Name, Chain Name, Location, Chain Type,
-SKU, SKU Code, Pareto, Category, Status, Sales Qty, Sales Value,
-MRP, Stock Qty, Targets, Margins, Promos%
-
-Recommended:
-Brand, Sub Category, City, State, Region, Distribution, Returns,
-Store Status, Store Format, Store Area
-
-The loader is intentionally tolerant of naming differences and normalizes headers.
-
-## Run locally
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
-
-Then open http://127.0.0.1:5000
-
-## Deploy
-Push the folder to GitHub and connect the repository to Render.
+For OneDrive, set these Render environment variables to direct downloadable Excel URLs:
+PRIMARY_URL
+TERTIARY_URL
+OP_STOCK_URL
+CL_STOCK_URL
+DISTRIBUTION_URL
+TARGET_URL
+OUTLET_MASTER_URL
+SKU_MASTER_URL
