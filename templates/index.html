@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MT 360 — Modern Trade Intelligence</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+:root{--bg:#f5f7f9;--panel:#fff;--text:#17212b;--muted:#697586;--line:#e5e9ef;--accent:#0f766e;--danger:#c2410c;--warn:#a16207;--good:#15803d}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{background:#fff;border-bottom:1px solid var(--line);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5}
+.brand{font-weight:800;font-size:20px}.sub{font-size:12px;color:var(--muted);margin-top:3px}
+button,.select{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 12px;font-weight:600;cursor:pointer}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+main{max-width:1500px;margin:auto;padding:18px}
+.filters{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:9px;margin-bottom:14px}
+select{width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(8,minmax(120px,1fr));gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.kpi{font-size:22px;font-weight:800;margin-top:7px}.kpi-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin-top:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+h2{font-size:15px;margin:0 0 10px}.section{margin-top:18px}.section-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.chart{height:330px}.smallchart{height:280px}
+.tablewrap{overflow:auto;max-height:390px;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}th:first-child,td:first-child{text-align:left}th{position:sticky;top:0;background:#f8fafc;z-index:1}
+.issue{font-weight:700}.oos{color:var(--danger)}.repl{color:var(--warn)}.dist{color:var(--accent)}.excess{color:#7c3aed}
+.insights{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.insight{border-left:4px solid var(--accent)}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+@media(max-width:1000px){.kpis{grid-template-columns:repeat(4,1fr)}.filters{grid-template-columns:repeat(3,1fr)}.grid,.grid3{grid-template-columns:1fr}.insights{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.kpis{grid-template-columns:repeat(2,1fr)}.filters{grid-template-columns:1fr 1fr}header{padding:12px 15px}main{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+ <div><div class="brand">MT 360</div><div class="sub">Modern Trade Intelligence · Cosmetics</div></div>
+ <div><button id="refresh" class="primary">↻ Refresh</button></div>
+</header>
+<main>
+ <div class="filters" id="filters"></div>
+
+ <div class="kpis">
+  <div class="card"><div class="kpi-label">MTD Sales</div><div id="sales" class="kpi">—</div><div class="kpi-sub">Sales value</div></div>
+  <div class="card"><div class="kpi-label">Growth</div><div id="growth" class="kpi">—</div><div class="kpi-sub">Latest month vs LY</div></div>
+  <div class="card"><div class="kpi-label">Target Ach.</div><div id="achievement" class="kpi">—</div><div class="kpi-sub">Sales / target</div></div>
+  <div class="card"><div class="kpi-label">Sales Qty</div><div id="qty" class="kpi">—</div><div class="kpi-sub">Units</div></div>
+  <div class="card"><div class="kpi-label">Stock Qty</div><div id="stock" class="kpi">—</div><div class="kpi-sub">Closing/current</div></div>
+  <div class="card"><div class="kpi-label">Stock Value</div><div id="stock_value" class="kpi">—</div><div class="kpi-sub">Qty × MRP</div></div>
+  <div class="card"><div class="kpi-label">NOD</div><div id="nod" class="kpi">—</div><div class="kpi-sub">Approx. cover</div></div>
+  <div class="card"><div class="kpi-label">OOS</div><div id="oos" class="kpi">—</div><div class="kpi-sub">Zero-stock rows</div></div>
+ </div>
+
+ <div class="section">
+  <div class="section-title"><h2>Executive Pulse</h2><span class="sub">What is happening now</span></div>
+  <div class="insights">
+   <div class="card insight"><b>Growth drivers</b><div id="driver">Loading…</div></div>
+   <div class="card insight"><b>Growth drag</b><div id="drag">Loading…</div></div>
+   <div class="card insight"><b>Inventory signal</b><div id="inventory">Loading…</div></div>
+   <div class="card insight"><b>Action queue</b><div id="action">Loading…</div></div>
+  </div>
+ </div>
+
+ <div class="grid">
+  <div class="card"><h2>Sales Trend</h2><div id="trend" class="chart"></div></div>
+  <div class="card"><h2>Retailer / Chain Performance</h2><div id="chains" class="smallchart"></div></div>
+ </div>
+
+ <div class="grid3">
+  <div class="card"><h2>Region Performance</h2><div id="regions" class="smallchart"></div></div>
+  <div class="card"><h2>Category Performance</h2><div id="categories" class="smallchart"></div></div>
+  <div class="card"><h2>Brand Performance</h2><div id="brands" class="smallchart"></div></div>
+ </div>
+
+ <div class="section">
+  <div class="section-title"><h2>Business Opportunity & Leakage Engine</h2><span class="sub">Prioritised exceptions</span></div>
+  <div class="card"><div id="oppTable" class="tablewrap"></div></div>
+ </div>
+
+ <div class="grid">
+  <div class="card"><h2>Top Stores</h2><div id="stores" class="tablewrap"></div></div>
+  <div class="card"><h2>Top SKUs</h2><div id="skus" class="tablewrap"></div></div>
+ </div>
+
+ <div class="grid">
+  <div class="card"><h2>SKU Pareto</h2><div id="pareto" class="chart"></div></div>
+  <div class="card"><h2>MT Health Checks</h2>
+   <div style="line-height:2.1;font-size:13px">
+    <div>Sales growth <b id="hGrowth">—</b></div>
+    <div>Target achievement <b id="hTarget">—</b></div>
+    <div>Availability <b id="hAvail">—</b></div>
+    <div>Inventory cover <b id="hNod">—</b></div>
+    <div>Margin value <b id="hMargin">—</b></div>
+   </div>
+  </div>
+ </div>
+</main>
+<script>
+const money=v=>{v=Number(v||0);if(Math.abs(v)>=1e7)return "₹"+(v/1e7).toFixed(2)+" Cr";if(Math.abs(v)>=1e5)return "₹"+(v/1e5).toFixed(2)+" L";return "₹"+v.toLocaleString("en-IN",{maximumFractionDigits:0})};
+const num=v=>Number(v||0).toLocaleString("en-IN",{maximumFractionDigits:0});
+const pct=v=>Number(v||0).toFixed(1)+"%";
+let opts={};
+
+async function getOptions(){
+ const r=await fetch("/api/options"); opts=await r.json();
+ const box=document.getElementById("filters");
+ const fields=[
+  ["chain_name","Chain"],["chain_type","Chain Type"],["region","Region"],
+  ["state","State"],["brand","Brand"],["category","Category"]
+ ];
+ box.innerHTML=fields.map(([k,label])=>`<select id="f_${k}" aria-label="${label}"><option>All</option>${(opts[k]||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join("")}</select>`).join("");
+ box.querySelectorAll("select").forEach(s=>s.addEventListener("change",load));
+}
+function escapeHtml(x){return String(x).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+function query(){
+ return [...document.querySelectorAll("#filters select")].map(s=>`f_${s.id.slice(2)}=${encodeURIComponent(s.value)}`).join("&");
+}
+function makeTable(rows, columns){
+ if(!rows||!rows.length)return '<div class="empty">No data for the selected filters.</div>';
+ let h="<table><thead><tr>"+columns.map(c=>`<th>${c[1]}</th>`).join("")+"</tr></thead><tbody>";
+ rows.forEach(r=>{h+="<tr>"+columns.map(c=>`<td>${c[2]?c[2](r[c[0]],r):escapeHtml(r[c[0]]??"—")}</td>`).join("")+"</tr>"});
+ return h+"</tbody></table>";
+}
+function bar(id, rows, key, value, title){
+ const names=rows.map(r=>String(r[key]??"Unknown")).reverse(), vals=rows.map(r=>Number(r[value]||0)).reverse();
+ Plotly.react(id,[{type:"bar",orientation:"h",x:vals,y:names,hovertemplate:"%{y}<br>₹%{x:,.0f}<extra></extra>"}],{margin:{l:110,r:15,t:5,b:35},paper_bgcolor:"transparent",plot_bgcolor:"transparent",font:{size:11},xaxis:{tickformat:"~s"},yaxis:{automargin:true}}, {displayModeBar:false,responsive:true});
+}
+async function load(){
+ const r=await fetch("/api/dashboard?"+query()); const d=await r.json(); const k=d.kpis;
+ document.getElementById("sales").textContent=money(k.sales);
+ document.getElementById("growth").textContent=pct(k.growth);
+ document.getElementById("achievement").textContent=pct(k.achievement);
+ document.getElementById("qty").textContent=num(k.qty);
+ document.getElementById("stock").textContent=num(k.stock);
+ document.getElementById("stock_value").textContent=money(k.stock_value);
+ document.getElementById("nod").textContent=Number(k.nod||0).toFixed(1);
+ document.getElementById("oos").textContent=pct(k.oos);
+
+ const trend=d.trend||[];
+ Plotly.react("trend",[
+  {x:trend.map(x=>x.month),y:trend.map(x=>x.sales_value),type:"scatter",mode:"lines+markers",name:"Sales"},
+  {x:trend.map(x=>x.month),y:trend.map(x=>x.margin_value),type:"scatter",mode:"lines",name:"Margin Value"}
+ ],{margin:{l:55,r:15,t:10,b:45},paper_bgcolor:"transparent",plot_bgcolor:"transparent",hovermode:"x unified",legend:{orientation:"h"}},{displayModeBar:false,responsive:true});
+ bar("chains",d.chains,"chain_name","sales_value");
+ bar("regions",d.regions,"region","sales_value");
+ bar("categories",d.categories,"category","sales_value");
+ bar("brands",d.brands,"brand","sales_value");
+
+ document.getElementById("stores").innerHTML=makeTable(d.stores,[["outlet_name","Store"],["sales_value","Sales",money],["sales_qty","Qty",num],["stock_qty","Stock",num],["nod","NOD",v=>Number(v||0).toFixed(1)]]);
+ document.getElementById("skus").innerHTML=makeTable(d.skus,[["sku","SKU"],["sales_value","Sales",money],["sales_qty","Qty",num],["stock_qty","Stock",num],["margin_pct","Margin",pct]]);
+
+ document.getElementById("oppTable").innerHTML=makeTable(d.opportunities,[
+  ["priority","Priority",v=>Number(v||0)],
+  ["issue","Issue",v=>`<span class="issue ${String(v).toLowerCase().includes("oos")?"oos":String(v).toLowerCase().includes("excess")?"excess":String(v).toLowerCase().includes("distribution")?"dist":"repl"}">${escapeHtml(v)}</span>`],
+  ["chain_name","Chain"],["outlet_name","Store"],["sku","SKU"],
+  ["sales_value","Sales",money],["velocity","Velocity",v=>Number(v||0).toFixed(1)],
+  ["nod","NOD",v=>Number(v||0).toFixed(1)],["distribution_pct","Distribution",v=>isNaN(Number(v))?"—":pct(v)]
+ ]);
+
+ const p=d.pareto||[];
+ Plotly.react("pareto",[{
+   x:p.map(x=>x.sku),y:p.map(x=>x.sales_value),type:"bar",
+   text:p.map(x=>x.pareto),hovertemplate:"%{x}<br>₹%{y:,.0f}<br>%{text}<extra></extra>"
+ }],{margin:{l:55,r:10,t:10,b:100},paper_bgcolor:"transparent",plot_bgcolor:"transparent",xaxis:{tickangle:-55},yaxis:{tickformat:"~s"}},{displayModeBar:false,responsive:true});
+
+ const chain=d.chains||[], cats=d.categories||[];
+ document.getElementById("driver").innerHTML=chain[0]?`${escapeHtml(chain[0].chain_name)} · <b>${money(chain[0].sales_value)}</b>`:"—";
+ document.getElementById("drag").innerHTML=chain.length?`${escapeHtml(chain[chain.length-1].chain_name)} · <b>${money(chain[chain.length-1].sales_value)}</b>`:"—";
+ document.getElementById("inventory").innerHTML=`<b>${Number(k.nod||0).toFixed(1)} NOD</b> · ${pct(k.oos)} OOS`;
+ document.getElementById("action").innerHTML=`<b>${(d.opportunities||[]).length}</b> priority records`;
+ document.getElementById("hGrowth").textContent=pct(k.growth);
+ document.getElementById("hTarget").textContent=pct(k.achievement);
+ document.getElementById("hAvail").textContent=pct(100-k.oos);
+ document.getElementById("hNod").textContent=Number(k.nod||0).toFixed(1)+" days";
+ document.getElementById("hMargin").textContent=money(k.margin);
+}
+document.getElementById("refresh").addEventListener("click",async()=>{await fetch("/api/refresh");await load()});
+(async()=>{await getOptions();await load()})();
+</script>
+</body>
+</html>
