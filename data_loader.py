@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd,requests
 from config import DATA_SOURCES,CACHE_MINUTES
 cache={"t":0,"d":None}
+options_cache={"t":0,"x":None}
 _lock=threading.Lock()  # guards cache across the 4 gunicorn threads in this worker
 ALIASES={"month":["month","month year","period","date"],"outlet_code":["outlet code","store code","outlet id","store id"],"outlet_name":["outlet name","store name","outlet","store"],"chain_name":["chain name","chain","retailer","retailer name"],"chain_type":["chain type","channel type","format","store type"],"location":["location","place"],"city":["city"],"state":["state"],"region":["region","zone"],"sku":["sku","product","product name"],"sku_code":["sku code","sku id","product code","ean","ean code"],"brand":["brand","brand name"],"category":["category"],"sub_category":["sub category","subcategory","sub-category"],"pareto":["pareto","pareto group"],"status":["status","sku status"],"sales_qty":["sales qty","sales quantity","qty","tertiary sales qty"],"sales_value":["sales value","sales","net sales","sales amount"],"mrp":["mrp","price"],"stock_qty":["stock qty","stock quantity","stock"],"target":["target","targets","sales target","target value"],"margin_pct":["margins","margin","margin %","margin pct"],"promo_pct":["promos%","promo %","promo pct","promotion %"],"distribution":["distribution","listed","availability","distributed"],"store_status":["store status","outlet status"],"store_format":["store format","format"],"store_area":["store area","area","sq ft","sqft"]}
 REV={re.sub(r"[^a-z0-9]+"," ",v.lower()).strip():k for k,vs in ALIASES.items() for v in vs}
@@ -51,8 +52,36 @@ def read(name,src):
   last_errors.pop(name,None);return result
  except Exception as e:
   last_errors[name]=str(e);print("DATA ERROR",name,src,e);return None
+def load_options(force=False):
+ # Lightweight loader used only by /api/options. Do NOT fetch stock/target/distribution
+ # files just to populate filter dropdowns; those remote files are the usual source of 502s.
+ global options_cache
+ with _lock:
+  if options_cache["x"] is not None and not force and time.time()-options_cache["t"] < CACHE_MINUTES*60:
+   return options_cache["x"]
+  frames=[]
+  # Tertiary is preferred, but PRIMARY is a fallback. Read only one sales source.
+  for name in ("TERTIARY","PRIMARY"):
+   src=DATA_SOURCES.get(name)
+   if not src: continue
+   z=read(name,src)
+   if z is not None and not z.empty:
+    frames.append(z); break
+  x=frames[0] if frames else pd.DataFrame()
+  # Enrich filter dimensions from the two master files only.
+  sm=read("SKU_MASTER",DATA_SOURCES.get("SKU_MASTER","")) if DATA_SOURCES.get("SKU_MASTER") else None
+  if not x.empty and sm is not None and "sku_code" in x and "sku_code" in sm:
+   sm=sm.drop_duplicates("sku_code"); cols=[c for c in ["brand","category","sub_category","pareto","status","mrp"] if c in sm and c not in x]
+   if cols: x=x.merge(sm[["sku_code"]+cols],on="sku_code",how="left")
+  om=read("OUTLET_MASTER",DATA_SOURCES.get("OUTLET_MASTER","")) if DATA_SOURCES.get("OUTLET_MASTER") else None
+  if not x.empty and om is not None and "outlet_code" in x and "outlet_code" in om:
+   om=om.drop_duplicates("outlet_code"); cols=[c for c in ["city","state","region","chain_name","chain_type","outlet_name"] if c in om and c not in x]
+   if cols: x=x.merge(om[["outlet_code"]+cols],on="outlet_code",how="left")
+  options_cache={"t":time.time(),"x":x}; return x
+
 def load(force=False):
  global cache
+
  with _lock:
   if cache["d"] is not None and not force and time.time()-cache["t"]<CACHE_MINUTES*60:return cache["d"]
   # Fetch all 8 sources in parallel instead of one-after-another: sequentially, a few slow

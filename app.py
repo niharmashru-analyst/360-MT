@@ -1,6 +1,6 @@
 import os,traceback
 from flask import Flask,render_template,request,jsonify
-from data_loader import load,last_errors
+from data_loader import load,load_options,last_errors
 from analytics import sales,filt,kpi,group,trend,dist,opp
 app=Flask(__name__)
 
@@ -15,10 +15,16 @@ def on_error(e):
 def home():return render_template('index.html')
 @app.route('/api/options')
 def options():
- x=sales(load());out={}
- for c in ['chain_name','chain_type','region','state','city','brand','category','sub_category','pareto','status']:
-  out[c]=sorted(x[c].dropna().astype(str).unique().tolist()) if c in x else []
- return jsonify(out)
+ try:
+  # Lightweight path: filters must never depend on the slower inventory/target files.
+  x=sales(load_options())
+  out={}
+  for c in ['chain_name','chain_type','region','state','city','brand','category','sub_category','pareto','status']:
+   out[c]=sorted(x[c].dropna().astype(str).unique().tolist()) if c in x else []
+  return jsonify(out)
+ except Exception as e:
+  traceback.print_exc()
+  return jsonify({'error':str(e),'chain_name':[],'chain_type':[],'region':[],'state':[],'city':[],'brand':[],'category':[],'sub_category':[],'pareto':[],'status':[]}),200
 @app.route('/api/dashboard')
 def dashboard():
  d=load();x=filt(sales(d),request.args)
@@ -28,7 +34,12 @@ def page(p):
  d=load();x=filt(sales(d),request.args);sets={'sales':['chain_name','region','city','category','brand'],'retailer':['chain_name','outlet_name'],'product':['category','sub_category','brand','sku'],'inventory':['chain_name','outlet_name','category'],'distribution':['chain_name','region','category','sku'],'commercial':['chain_name','category','brand'],'flow':['chain_name','region','category']}
  return jsonify({'kpis':kpi(x),'trend':trend(x),'tables':{c:group(x,c,30) for c in sets.get(p,['chain_name','category','sku'])},'distribution':dist(d),'opportunities':opp(x,d)})
 @app.route('/api/refresh')
-def refresh():load(True);return jsonify({'ok':True})
+def refresh():
+ from data_loader import options_cache
+ load(True)
+ options_cache['t']=0
+ options_cache['x']=None
+ return jsonify({'ok':True})
 @app.route('/api/health')
 def health():
  d=load();return jsonify({'datasets':{k:(0 if v is None else len(v)) for k,v in d.items()},'errors':last_errors})
