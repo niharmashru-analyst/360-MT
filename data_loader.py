@@ -131,6 +131,11 @@ def _build_dataset(names):
         d[k]=None
     return d
 
+def clear_cache():
+    global cache
+    with _lock:
+        cache={"t":0,"d":None}
+
 def load(force=False):
     global cache
     with _lock:

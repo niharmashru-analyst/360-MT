@@ -54,9 +54,8 @@ def page(p):
  return jsonify({'kpis':kpi(x),'trend':trend(x),'tables':{c:group(x,c,30) for c in sets.get(p,['chain_name','category','sku'])},'distribution':dist(d),'opportunities':opp(x,d)})
 @app.route('/api/refresh')
 def refresh():
-    from data_loader import cache
-    with __import__('data_loader')._lock:
-        cache={'t':0,'d':None}
+    from data_loader import clear_cache
+    clear_cache()
     return jsonify({'ok':True})
 @app.route('/api/health')
 def health():
